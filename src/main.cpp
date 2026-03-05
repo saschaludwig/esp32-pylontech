@@ -17,6 +17,9 @@ Preferences prefs;
 WiFiManager wm;
 Pylonclient client;
 
+unsigned long wifiLostSince = 0;
+const unsigned long WIFI_WATCHDOG_TIMEOUT_MS = 300000; // 5 minutes
+
 void connectToMqtt() {
   dbgln("Connecting to MQTT...");
   mqttClient.connect();
@@ -47,6 +50,22 @@ void setup() {
   config.begin(&prefs);
   dbgln("[wifi] start");
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    dbgln("[wifi] disconnected");
+    if (wifiLostSince == 0) {
+      wifiLostSince = millis();
+      if (wifiLostSince == 0) wifiLostSince = 1;
+    }
+  }, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    wifiLostSince = 0;
+    dbg("[wifi] connected, IP: ");
+    dbgln(WiFi.localIP());
+    if (config.getMqttHost().length() > 0) {
+      mqttReconnectTimer.once(2, connectToMqtt);
+    }
+  }, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
   wm.setClass("invert");
   wm.autoConnect();
   dbgln("[wifi] finished");
@@ -80,6 +99,14 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
+  if (!WiFi.isConnected()) {
+    if (wifiLostSince > 0 && (millis() - wifiLostSince) > WIFI_WATCHDOG_TIMEOUT_MS) {
+      dbgln("[wifi] reconnect timeout, rebooting...");
+      ESP.restart();
+    }
+    delay(1000);
+    return;
+  }
   if (mqttClient.connected()){
     for (size_t i = 0; i < config.getModuleCount(); i++)
     {
