@@ -1,15 +1,63 @@
 #include "pages.h"
 
+extern unsigned long wifiReconnectCount;
+
 void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pylonclient *client, AsyncMqttClient *mqtt){
   server->on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     dbgln("[webserver] GET /");
     auto *response = request->beginResponseStream("text/html");
     sendResponseHeader(response, "Main");
+    sendButton(response, "Info", "info");
     sendButton(response, "Config", "config");
     sendButton(response, "Debug", "debug");
     sendButton(response, "Firmware update", "update");
     sendButton(response, "WiFi reset", "wifi", "r");
     sendButton(response, "Reboot", "reboot", "r");
+    sendResponseTrailer(response);
+    request->send(response);
+  });
+  server->on("/info", HTTP_GET, [](AsyncWebServerRequest *request){
+    dbgln("[webserver] GET /info");
+    auto *response = request->beginResponseStream("text/html");
+    sendResponseHeader(response, "Info");
+    unsigned long uptimeMs = millis();
+    unsigned long seconds = uptimeMs / 1000;
+    unsigned long minutes = seconds / 60;
+    unsigned long hours = minutes / 60;
+    unsigned long days = hours / 24;
+    response->print("<table>");
+    response->printf(
+      "<tr><td>Uptime:</td><td>%lud %luh %lum %lus</td></tr>",
+      days, hours % 24, minutes % 60, seconds % 60);
+    response->printf(
+      "<tr><td>WiFi Reconnects:</td><td>%lu</td></tr>",
+      wifiReconnectCount);
+    response->printf(
+      "<tr><td>SSID:</td><td>%s</td></tr>",
+      WiFi.SSID().c_str());
+    response->printf(
+      "<tr><td>BSSID:</td><td>%s</td></tr>",
+      WiFi.BSSIDstr().c_str());
+    response->printf(
+      "<tr><td>RSSI:</td><td>%d dBm</td></tr>",
+      WiFi.RSSI());
+    response->printf(
+      "<tr><td>WiFi Channel:</td><td>%d</td></tr>",
+      WiFi.channel());
+    response->printf(
+      "<tr><td>IP:</td><td>%s</td></tr>",
+      WiFi.localIP().toString().c_str());
+    response->printf(
+      "<tr><td>Netmask:</td><td>%s</td></tr>",
+      WiFi.subnetMask().toString().c_str());
+    response->printf(
+      "<tr><td>Gateway:</td><td>%s</td></tr>",
+      WiFi.gatewayIP().toString().c_str());
+    response->printf(
+      "<tr><td>MAC:</td><td>%s</td></tr>",
+      WiFi.macAddress().c_str());
+    response->print("</table><p></p>");
+    sendButton(response, "Back", "/");
     sendResponseTrailer(response);
     request->send(response);
   });

@@ -18,6 +18,7 @@ WiFiManager wm;
 Pylonclient client;
 
 unsigned long wifiLostSince = 0;
+unsigned long wifiReconnectCount = 0;
 const unsigned long WIFI_WATCHDOG_TIMEOUT_MS = 300000; // 5 minutes
 
 void connectToMqtt() {
@@ -59,6 +60,9 @@ void setup() {
     }
   }, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    if (wifiLostSince > 0) {
+      wifiReconnectCount++;
+    }
     wifiLostSince = 0;
     dbg("[wifi] connected, IP: ");
     dbgln(WiFi.localIP());
