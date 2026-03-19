@@ -17,6 +17,51 @@ Preferences prefs;
 WiFiManager wm;
 Pylonclient client;
 
+unsigned long wifiLostSince = 0;
+unsigned long wifiReconnectCount = 0;
+bool wifiNeedsReconnect = false;
+bool wifiSetupDone = false;
+String savedSSID;
+String savedPSK;
+unsigned long lastScanTime = 0;
+const unsigned long WIFI_WATCHDOG_TIMEOUT_MS = 300000; // 5 minutes
+const unsigned long WIFI_SCAN_COOLDOWN_MS = 30000; // 30 seconds between scans
+
+void connectToBestAP() {
+  if (savedSSID.length() == 0) {
+    dbgln("[wifi] no saved SSID, skipping scan");
+    return;
+  }
+  unsigned long now = millis();
+  if (lastScanTime > 0 && (now - lastScanTime) < WIFI_SCAN_COOLDOWN_MS) {
+    dbgln("[wifi] scan cooldown active, using default reconnect");
+    WiFi.begin(savedSSID.c_str(), savedPSK.c_str());
+    return;
+  }
+  lastScanTime = now;
+  dbgln("[wifi] scanning for best AP...");
+  int n = WiFi.scanNetworks();
+  int bestRSSI = -999;
+  int bestIndex = -1;
+  for (int i = 0; i < n; i++) {
+    if (WiFi.SSID(i) == savedSSID && WiFi.RSSI(i) > bestRSSI) {
+      bestRSSI = WiFi.RSSI(i);
+      bestIndex = i;
+    }
+  }
+  if (bestIndex >= 0) {
+    dbg("[wifi] best AP: ");
+    dbg(WiFi.BSSIDstr(bestIndex));
+    dbg(" RSSI: ");
+    dbgln(bestRSSI);
+    WiFi.begin(savedSSID.c_str(), savedPSK.c_str(), WiFi.channel(bestIndex), WiFi.BSSID(bestIndex));
+  } else {
+    dbgln("[wifi] no AP found, trying default...");
+    WiFi.begin(savedSSID.c_str(), savedPSK.c_str());
+  }
+  WiFi.scanDelete();
+}
+
 void connectToMqtt() {
   dbgln("Connecting to MQTT...");
   mqttClient.connect();
@@ -47,8 +92,32 @@ void setup() {
   config.begin(&prefs);
   dbgln("[wifi] start");
   WiFi.mode(WIFI_STA);
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    dbgln("[wifi] disconnected");
+    if (wifiLostSince == 0) {
+      wifiLostSince = millis();
+      if (wifiLostSince == 0) wifiLostSince = 1;
+    }
+    if (wifiSetupDone) {
+      wifiNeedsReconnect = true;
+    }
+  }, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    if (wifiLostSince > 0) {
+      wifiReconnectCount++;
+    }
+    wifiLostSince = 0;
+    dbg("[wifi] connected, IP: ");
+    dbgln(WiFi.localIP());
+    if (config.getMqttHost().length() > 0) {
+      mqttReconnectTimer.once(2, connectToMqtt);
+    }
+  }, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
   wm.setClass("invert");
   wm.autoConnect();
+  savedSSID = WiFi.SSID();
+  savedPSK = WiFi.psk();
+  wifiSetupDone = true;
   dbgln("[wifi] finished");
   if (config.getMqttHost().length() > 0){
     dbgln("[mqtt] start");
@@ -79,7 +148,18 @@ void setup() {
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  if (wifiNeedsReconnect) {
+    wifiNeedsReconnect = false;
+    connectToBestAP();
+  }
+  if (!WiFi.isConnected()) {
+    if (wifiLostSince > 0 && (millis() - wifiLostSince) > WIFI_WATCHDOG_TIMEOUT_MS) {
+      dbgln("[wifi] reconnect timeout, rebooting...");
+      ESP.restart();
+    }
+    delay(1000);
+    return;
+  }
   if (mqttClient.connected()){
     for (size_t i = 0; i < config.getModuleCount(); i++)
     {
