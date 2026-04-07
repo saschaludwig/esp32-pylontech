@@ -28,8 +28,11 @@ const unsigned long WIFI_WATCHDOG_TIMEOUT_MS = 300000; // 5 minutes
 const unsigned long WIFI_SCAN_COOLDOWN_MS = 30000; // 30 seconds between scans
 const unsigned long MQTT_RECONNECT_MIN_MS = 2000; // 2 seconds
 const unsigned long MQTT_RECONNECT_MAX_MS = 60000; // 60 seconds
+const unsigned long MQTT_CONNECT_TIMEOUT_MS = 30000; // 30 seconds
 unsigned long lastMqttReconnectAttemptMs = 0;
 unsigned long mqttReconnectBackoffMs = MQTT_RECONNECT_MIN_MS;
+bool mqttConnectInProgress = false;
+unsigned long mqttConnectStartedMs = 0;
 
 unsigned long nextMqttReconnectBackoff(unsigned long currentBackoffMs) {
   if (currentBackoffMs >= MQTT_RECONNECT_MAX_MS) {
@@ -78,6 +81,12 @@ void connectToBestAP() {
 }
 
 void connectToMqtt() {
+  if (mqttConnectInProgress) {
+    dbgln("[mqtt] connect attempt already in progress, skipping");
+    return;
+  }
+  mqttConnectInProgress = true;
+  mqttConnectStartedMs = millis();
   lastMqttReconnectAttemptMs = millis();
   dbgln("Connecting to MQTT...");
   dbg("[mqtt] reconnect backoff now ");
@@ -92,14 +101,19 @@ void mqttPublish(String topic, String value){
 }
 
 void onMqttConnect(bool sessionPresent) {
+  mqttConnectInProgress = false;
+  mqttConnectStartedMs = 0;
   mqttReconnectBackoffMs = MQTT_RECONNECT_MIN_MS;
   lastMqttReconnectAttemptMs = 0;
+  dbgln("[mqtt] connected, reset reconnect state");
   mqttClient.setWill((config.getMqttPrefix() + "/online").c_str(), 0, false, "0");
   mqttPublish("online", "1");
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
   debugSerial.println("Disconnected from MQTT.");
+  mqttConnectInProgress = false;
+  mqttConnectStartedMs = 0;
 
   if (WiFi.isConnected() && config.getMqttHost().length() > 0) {
     mqttReconnectTimer.detach();
@@ -191,10 +205,20 @@ void loop() {
     delay(1000);
     return;
   }
+  if (config.getMqttHost().length() > 0 && !mqttClient.connected() && mqttConnectInProgress) {
+    unsigned long now = millis();
+    if ((now - mqttConnectStartedMs) > MQTT_CONNECT_TIMEOUT_MS) {
+      dbgln("[mqtt] connect timeout, resetting mqtt client state");
+      mqttReconnectTimer.detach();
+      mqttClient.disconnect();
+      mqttConnectInProgress = false;
+      mqttConnectStartedMs = 0;
+    }
+  }
   if (config.getMqttHost().length() > 0 && !mqttClient.connected()) {
     unsigned long now = millis();
-    bool shouldReconnect = (lastMqttReconnectAttemptMs == 0) ||
-      ((now - lastMqttReconnectAttemptMs) >= mqttReconnectBackoffMs);
+    bool shouldReconnect = !mqttConnectInProgress && ((lastMqttReconnectAttemptMs == 0) ||
+      ((now - lastMqttReconnectAttemptMs) >= mqttReconnectBackoffMs));
     if (shouldReconnect) {
       dbgln("[mqtt] fallback reconnect attempt from loop");
       connectToMqtt();
