@@ -16,7 +16,7 @@ void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pyloncl
     sendResponseTrailer(response);
     request->send(response);
   });
-  server->on("/info", HTTP_GET, [](AsyncWebServerRequest *request){
+  server->on("/info", HTTP_GET, [config, mqtt](AsyncWebServerRequest *request){
     dbgln("[webserver] GET /info");
     auto *response = request->beginResponseStream("text/html");
     sendResponseHeader(response, "Info");
@@ -56,6 +56,23 @@ void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pyloncl
     response->printf(
       "<tr><td>MAC:</td><td>%s</td></tr>",
       WiFi.macAddress().c_str());
+    if (config->getMqttHost().length() == 0) {
+      response->print(
+        "<tr><td>MQTT Status:</td><td>Not configured</td></tr>");
+    } else {
+      response->printf(
+        "<tr><td>MQTT Status:</td><td>%s</td></tr>",
+        mqtt->connected() ? "Connected" : "Disconnected");
+      response->printf(
+        "<tr><td>MQTT Host:</td><td>%s</td></tr>",
+        config->getMqttHost().c_str());
+      response->printf(
+        "<tr><td>MQTT Port:</td><td>%u</td></tr>",
+        config->getMqttPort());
+      response->printf(
+        "<tr><td>MQTT Prefix:</td><td>%s</td></tr>",
+        config->getMqttPrefix().c_str());
+    }
     response->print("</table><p></p>");
     sendButton(response, "Back", "/");
     sendResponseTrailer(response);
