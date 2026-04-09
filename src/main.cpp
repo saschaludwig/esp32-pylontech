@@ -33,6 +33,10 @@ unsigned long lastMqttReconnectAttemptMs = 0;
 unsigned long mqttReconnectBackoffMs = MQTT_RECONNECT_MIN_MS;
 bool mqttConnectInProgress = false;
 unsigned long mqttConnectStartedMs = 0;
+String mqttUsernameRuntime = "";
+String mqttPasswordRuntime = "";
+
+void connectToMqtt();
 
 unsigned long nextMqttReconnectBackoff(unsigned long currentBackoffMs) {
   if (currentBackoffMs >= MQTT_RECONNECT_MAX_MS) {
@@ -43,6 +47,42 @@ unsigned long nextMqttReconnectBackoff(unsigned long currentBackoffMs) {
     nextBackoffMs = MQTT_RECONNECT_MAX_MS;
   }
   return nextBackoffMs;
+}
+
+void configureMqttClientFromConfig() {
+  IPAddress ip;
+  if (ip.fromString(config.getMqttHost())) {
+    mqttClient.setServer(ip, config.getMqttPort());
+  } else {
+    mqttClient.setServer(config.getMqttHost().c_str(), config.getMqttPort());
+  }
+  mqttUsernameRuntime = config.getMqttUsername();
+  mqttPasswordRuntime = config.getMqttPassword();
+  if (mqttUsernameRuntime.length() > 0) {
+    mqttClient.setCredentials(mqttUsernameRuntime.c_str(), mqttPasswordRuntime.c_str());
+  } else {
+    mqttClient.setCredentials(nullptr, nullptr);
+  }
+}
+
+void onMqttConfigChanged() {
+  dbgln("[mqtt] config changed, reconfiguring client");
+  mqttReconnectTimer.detach();
+  mqttConnectInProgress = false;
+  mqttConnectStartedMs = 0;
+  lastMqttReconnectAttemptMs = 0;
+  mqttReconnectBackoffMs = MQTT_RECONNECT_MIN_MS;
+  mqttClient.disconnect();
+
+  if (config.getMqttHost().length() == 0) {
+    dbgln("[mqtt] host empty, mqtt disabled");
+    return;
+  }
+
+  configureMqttClientFromConfig();
+  if (WiFi.isConnected()) {
+    connectToMqtt();
+  }
 }
 
 void connectToBestAP() {
@@ -170,23 +210,14 @@ void setup() {
     dbg(config.getMqttHost().c_str());
     dbg(":");
     dbgln(config.getMqttPort());
-    IPAddress ip;
-    if (ip.fromString(config.getMqttHost())){
-      mqttClient.setServer(ip, config.getMqttPort());
-    }
-    else{
-      mqttClient.setServer(config.getMqttHost().c_str(), config.getMqttPort());
-    }
-    if (config.getMqttUsername().length() > 0){
-      mqttClient.setCredentials(strdup(config.getMqttUsername().c_str()), strdup(config.getMqttPassword().c_str()));
-    }
+    configureMqttClientFromConfig();
     mqttClient.onConnect(onMqttConnect);
     mqttClient.onDisconnect(onMqttDisconnect);
     connectToMqtt();
     dbgln("[mqtt] finished");
   }  
   client.Begin(&pylonSerial);
-  setupPages(&webServer, &wm, &config, &client, &mqttClient);
+  setupPages(&webServer, &wm, &config, &client, &mqttClient, onMqttConfigChanged);
   webServer.begin();
   pylonSerial.begin(115200, SERIAL_8N1);
   dbgln("[setup] finished");

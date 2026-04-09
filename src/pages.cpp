@@ -2,7 +2,7 @@
 
 extern unsigned long wifiReconnectCount;
 
-void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pylonclient *client, AsyncMqttClient *mqtt){
+void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pylonclient *client, AsyncMqttClient *mqtt, std::function<void()> onMqttConfigChanged){
   server->on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     dbgln("[webserver] GET /");
     auto *response = request->beginResponseStream("text/html");
@@ -174,7 +174,7 @@ void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pyloncl
     sendResponseTrailer(response);
     request->send(response);
   });
-  server->on("/config", HTTP_POST, [config](AsyncWebServerRequest *request){
+  server->on("/config", HTTP_POST, [config, onMqttConfigChanged](AsyncWebServerRequest *request){
     dbgln("[webserver] POST /config");
     if (request->hasParam("c", true)){
       auto nr = request->getParam("c", true)->value().toInt();
@@ -210,6 +210,9 @@ void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pyloncl
       auto password = request->getParam("pa", true)->value();
       config->setMqttPassword(password);
       dbgln("[webserver] saved mqtt password");
+    }
+    if (onMqttConfigChanged) {
+      onMqttConfigChanged();
     }
     request->redirect("/");    
   });
