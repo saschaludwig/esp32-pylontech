@@ -160,6 +160,26 @@ void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pyloncl
     response->print("</td>"
       "</tr>"
         "</table>");
+    response->print("<h4>Polled info types</h4>");
+    response->print("<table>");
+    struct InfoTypeRow { const char *name; const char *label; uint8_t flag; };
+    const InfoTypeRow infoTypes[] = {
+      {"it_man", "Manufacturer info",        INFO_FLAG_MANUFACTURER},
+      {"it_fw",  "Firmware info",            INFO_FLAG_FIRMWARE},
+      {"it_sn",  "Serial number",            INFO_FLAG_SERIALNUMBER},
+      {"it_sys", "System parameter",         INFO_FLAG_SYSTEM_PARAMETER},
+      {"it_cd",  "Charge/discharge mgmt",    INFO_FLAG_CHARGE_DISCHARGE},
+      {"it_an",  "Analog values",            INFO_FLAG_ANALOG_VALUE},
+      {"it_al",  "Alarm info",               INFO_FLAG_ALARM},
+    };
+    for (auto &row : infoTypes) {
+      response->printf(
+        "<tr><td><label for=\"%s\">%s</label></td>"
+        "<td><input type=\"checkbox\" id=\"%s\" name=\"%s\" value=\"1\"%s></td></tr>",
+        row.name, row.label, row.name, row.name,
+        config->isInfoTypeEnabled(row.flag) ? " checked" : "");
+    }
+    response->print("</table>");
     response->print("<button class=\"r\">Save</button>"
       "</form>"
       "<p></p>");
@@ -211,6 +231,16 @@ void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pyloncl
       config->setMqttPassword(password);
       dbgln("[webserver] saved mqtt password");
     }
+    uint8_t infoFlags = 0;
+    if (request->hasParam("it_man", true)) infoFlags |= INFO_FLAG_MANUFACTURER;
+    if (request->hasParam("it_fw",  true)) infoFlags |= INFO_FLAG_FIRMWARE;
+    if (request->hasParam("it_sn",  true)) infoFlags |= INFO_FLAG_SERIALNUMBER;
+    if (request->hasParam("it_sys", true)) infoFlags |= INFO_FLAG_SYSTEM_PARAMETER;
+    if (request->hasParam("it_cd",  true)) infoFlags |= INFO_FLAG_CHARGE_DISCHARGE;
+    if (request->hasParam("it_an",  true)) infoFlags |= INFO_FLAG_ANALOG_VALUE;
+    if (request->hasParam("it_al",  true)) infoFlags |= INFO_FLAG_ALARM;
+    config->setInfoFlags(infoFlags);
+    dbgln("[webserver] saved info flags");
     if (onMqttConfigChanged) {
       onMqttConfigChanged();
     }
@@ -305,6 +335,12 @@ void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pyloncl
       {
         auto analog = Pylonframe::PylonAnalogValue(frame.Info);
         analog.print(response);
+        break;
+      }
+      case CommandInformation::ProtocolVersion:
+      {
+        response->printf("<br/>Major: %u<br/>Minor: %u",
+          frame.MajorVersion, frame.MinorVersion);
         break;
       }
     }

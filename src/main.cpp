@@ -276,95 +276,109 @@ void loop() {
         minor = frame.MinorVersion;
       }
 
-      frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::ManufacturerInfo));
-      if (frame.HasError){
-        dbg("manufacturer failed for ");
-        dbgln(i);
-        dbg("with code");
-        dbgln(frame.Cid2);
-      }
-      else
-      {
-        auto manufacturer = Pylonframe::PylonManufacturerInfo(frame.Info);
-        manufacturer.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
-      }
-
-      frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::FirmwareInfo));
-      if (frame.HasError){
-        dbg("firmware failed for ");
-        dbgln(i);
-        dbg("with code");
-        dbgln(frame.Cid2);
-      }
-      else
-      {
-        auto firmware = Pylonframe::PylonFirmwareInfo(frame.Info);
-        firmware.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
+      if (config.isInfoTypeEnabled(INFO_FLAG_MANUFACTURER)) {
+        frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::ManufacturerInfo));
+        if (frame.HasError){
+          dbg("manufacturer failed for ");
+          dbgln(i);
+          dbg("with code");
+          dbgln(frame.Cid2);
+        }
+        else
+        {
+          auto manufacturer = Pylonframe::PylonManufacturerInfo(frame.Info);
+          manufacturer.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
+        }
       }
 
-      frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::Serialnumber));
-      if (frame.HasError){
-        dbg("serialnumber failed for ");
-        dbgln(i);
-        dbg("with code");
-        dbgln(frame.Cid2);
-      }
-      else
-      {
-        auto serialnumber = Pylonframe::PylonSerialnumber(frame.Info);
-        serialnumber.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
-      }
-
-      frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::SystemParameterFixedPoint));
-      if (frame.HasError){
-        dbg("system failed for ");
-        dbgln(i);
-        dbg("with code");
-        dbgln(frame.Cid2);
-      }
-      else
-      {
-        auto system = Pylonframe::PylonSystemParameter(frame.Info);
-        system.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
+      if (config.isInfoTypeEnabled(INFO_FLAG_FIRMWARE)) {
+        frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::FirmwareInfo));
+        if (frame.HasError){
+          dbg("firmware failed for ");
+          dbgln(i);
+          dbg("with code");
+          dbgln(frame.Cid2);
+        }
+        else
+        {
+          auto firmware = Pylonframe::PylonFirmwareInfo(frame.Info);
+          firmware.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
+        }
       }
 
-      frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::GetChargeDischargeManagementInfo));
-      if (frame.HasError){
-        dbg("chargeDischarge failed for ");
-        dbgln(i);
-        dbg("with code");
-        dbgln(frame.Cid2);
-      }
-      else
-      {
-        auto chargeDischarge = Pylonframe::PylonChargeDischargeManagementInfo(frame.Info);
-        chargeDischarge.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
-      }
-
-      frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::AnalogValueFixedPoint));
-      if (frame.HasError){
-        dbg("analog failed for ");
-        dbgln(i);
-        dbg("with code");
-        dbgln(frame.Cid2);
-      }
-      else
-      {
-        auto analog = Pylonframe::PylonAnalogValue(frame.Info);
-        analog.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
+      if (config.isInfoTypeEnabled(INFO_FLAG_SERIALNUMBER)) {
+        frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::Serialnumber));
+        if (frame.HasError){
+          dbg("serialnumber failed for ");
+          dbgln(i);
+          dbg("with code");
+          dbgln(frame.Cid2);
+        }
+        else
+        {
+          auto serialnumber = Pylonframe::PylonSerialnumber(frame.Info);
+          serialnumber.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
+        }
       }
 
-      frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::AlarmInfo));
-      if (frame.HasError){
-        dbg("alarm failed for ");
-        dbgln(i);
-        dbg("with code");
-        dbgln(frame.Cid2);
+      if (config.isInfoTypeEnabled(INFO_FLAG_SYSTEM_PARAMETER)) {
+        frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::SystemParameterFixedPoint));
+        if (frame.HasError){
+          dbg("system failed for ");
+          dbgln(i);
+          dbg("with code");
+          dbgln(frame.Cid2);
+        }
+        else
+        {
+          auto system = Pylonframe::PylonSystemParameter(frame.Info);
+          system.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
+        }
       }
-      else
-      {
-        auto alarm = Pylonframe::PylonAlarmInfo(frame.Info);
-        alarm.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
+
+      if (config.isInfoTypeEnabled(INFO_FLAG_CHARGE_DISCHARGE)) {
+        frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::GetChargeDischargeManagementInfo));
+        if (frame.HasError){
+          dbg("chargeDischarge failed for ");
+          dbgln(i);
+          dbg("with code");
+          dbgln(frame.Cid2);
+        }
+        else
+        {
+          auto chargeDischarge = Pylonframe::PylonChargeDischargeManagementInfo(frame.Info);
+          chargeDischarge.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
+        }
+      }
+
+      if (config.isInfoTypeEnabled(INFO_FLAG_ANALOG_VALUE)) {
+        frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::AnalogValueFixedPoint));
+        if (frame.HasError){
+          dbg("analog failed for ");
+          dbgln(i);
+          dbg("with code");
+          dbgln(frame.Cid2);
+        }
+        else
+        {
+          auto analog = Pylonframe::PylonAnalogValue(frame.Info);
+          analog.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
+        }
+      }
+
+      if (config.isInfoTypeEnabled(INFO_FLAG_ALARM)) {
+        frame = client.SendCommand(Pylonframe(major, minor, 2 + i, CommandInformation::AlarmInfo));
+        if (frame.HasError){
+          dbg("alarm failed for ");
+          dbgln(i);
+          dbg("with code");
+          dbgln(frame.Cid2);
+        }
+        else
+        {
+          auto alarm = Pylonframe::PylonAlarmInfo(frame.Info);
+          alarm.publish([i](String name, String value){mqttPublish(String(i) + "/" + name, value);});
+        }
       }
     }
     
