@@ -2,6 +2,89 @@
 
 extern unsigned long wifiReconnectCount;
 
+static void renderWifiPage(AsyncResponseStream *response){
+  sendResponseHeader(response, "WiFi");
+  response->print("<h4>Current connection</h4>");
+  response->print("<table>");
+  response->printf("<tr><td>SSID:</td><td>%s</td></tr>", WiFi.SSID().c_str());
+  response->printf("<tr><td>BSSID:</td><td>%s</td></tr>", WiFi.BSSIDstr().c_str());
+  response->printf("<tr><td>RSSI:</td><td>%d dBm</td></tr>", WiFi.RSSI());
+  response->printf("<tr><td>Channel:</td><td>%d</td></tr>", WiFi.channel());
+  response->printf("<tr><td>IP:</td><td>%s</td></tr>", WiFi.localIP().toString().c_str());
+  response->print("</table><p></p>");
+
+  response->print("<h4>Networks</h4>");
+  int scanState = WiFi.scanComplete();
+  if (scanState == WIFI_SCAN_RUNNING) {
+    response->print("<meta http-equiv=\"refresh\" content=\"1; url=/wifi\">");
+    response->print("<p>Scanning...</p>");
+  } else if (scanState == WIFI_SCAN_FAILED) {
+    response->print("<p>No scan yet. Click Rescan.</p>");
+  } else if (scanState == 0) {
+    response->print("<p>No networks found.</p>");
+  } else {
+    response->print("<table>"
+      "<tr><th>SSID</th><th>RSSI</th><th>Ch</th><th>Lock</th></tr>");
+    for (int i = 0; i < scanState; i++) {
+      String ssid = WiFi.SSID(i);
+      String escSsid = ssid;
+      escSsid.replace("\"", "&quot;");
+      escSsid.replace("<", "&lt;");
+      escSsid.replace(">", "&gt;");
+      bool locked = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+      response->printf(
+        "<tr class=\"wn\" data-ssid=\"%s\" style=\"cursor:pointer\">"
+        "<td>%s</td><td>%d dBm</td><td>%d</td><td>%s</td>"
+        "</tr>",
+        escSsid.c_str(), escSsid.c_str(), WiFi.RSSI(i), WiFi.channel(i),
+        locked ? "yes" : "no");
+    }
+    response->print("</table>");
+  }
+  response->print("<p></p>"
+    "<form method=\"get\" action=\"/wifi/scan\">"
+      "<button>Rescan</button>"
+    "</form><p></p>");
+
+  response->print("<h4>Edit</h4>");
+  response->print("<form method=\"post\" action=\"/wifi\">"
+    "<table>"
+      "<tr>"
+        "<td><label for=\"ssid\">SSID</label></td>"
+        "<td>");
+  response->printf("<input type=\"text\" id=\"ssid\" name=\"ssid\" value=\"%s\">",
+    WiFi.SSID().c_str());
+  response->print("</td>"
+      "</tr>"
+      "<tr>"
+        "<td><label for=\"psk\">Password</label></td>"
+        "<td><input type=\"password\" id=\"psk\" name=\"psk\" value=\"\"></td>"
+      "</tr>"
+    "</table>"
+    "<button>Save and reboot</button>"
+    "</form><p></p>");
+
+  sendButton(response, "Back", "/");
+  response->print("<p></p>"
+    "<form method=\"post\" action=\"/wifi/erase\">"
+      "<button class=\"r\">Erase WiFi config</button>"
+    "</form>");
+
+  response->print("<script>"
+    "(function(){"
+      "var rows=document.querySelectorAll('tr.wn');"
+      "var input=document.getElementById('ssid');"
+      "rows.forEach(function(r){"
+        "r.addEventListener('click',function(){"
+          "input.value=r.dataset.ssid;"
+          "document.getElementById('psk').focus();"
+        "});"
+      "});"
+    "})();"
+    "</script>");
+  sendResponseTrailer(response);
+}
+
 void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pylonclient *client, AsyncMqttClient *mqtt, std::function<void()> onMqttConfigChanged){
   server->on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     dbgln("[webserver] GET /");
@@ -11,7 +94,7 @@ void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pyloncl
     sendButton(response, "Config", "config");
     sendButton(response, "Debug", "debug");
     sendButton(response, "Firmware update", "update");
-    sendButton(response, "WiFi reset", "wifi", "r");
+    sendButton(response, "WiFi", "wifi");
     sendButton(response, "Reboot", "reboot", "r");
     sendResponseTrailer(response);
     request->send(response);
@@ -465,30 +548,50 @@ void setupPages(AsyncWebServer *server, WiFiManager *wm, Config *config, Pyloncl
       return;
     }
   });
-  server->on("/wifi", HTTP_GET, [](AsyncWebServerRequest *request){
-    dbgln("[webserver] GET /wifi");
-    auto *response = request->beginResponseStream("text/html");
-    sendResponseHeader(response, "WiFi reset");
-    response->print("<p class=\"e\">"
-        "This will delete the stored WiFi config<br/>"
-        "and restart the ESP in AP mode.<br/> Are you sure?"
-      "</p>");
-    sendButton(response, "Back", "/");
-    response->print("<p></p>"
-      "<form method=\"post\">"
-        "<button class=\"r\">Yes, do it!</button>"
-      "</form>");    
-    sendResponseTrailer(response);
-    request->send(response);
+  // IMPORTANT: more specific routes must be registered before /wifi, because
+  // ESPAsyncWebServer's /wifi handler also matches /wifi/* (it accepts URLs
+  // that start with "/wifi/"). Registering sub-routes first ensures they win.
+  server->on("/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *request){
+    dbgln("[webserver] GET /wifi/scan");
+    WiFi.scanDelete();
+    WiFi.scanNetworks(true /* async */);
+    request->redirect("/wifi");
   });
-  server->on("/wifi", HTTP_POST, [wm](AsyncWebServerRequest *request){
-    dbgln("[webserver] POST /wifi");
+  server->on("/wifi/erase", HTTP_POST, [wm](AsyncWebServerRequest *request){
+    dbgln("[webserver] POST /wifi/erase");
     request->redirect("/");
     wm->erase();
     dbgln("[webserver] erased wifi config");
     dbgln("[webserver] rebooting...");
     ESP.restart();
     dbgln("[webserver] rebooted...");
+  });
+  server->on("/wifi", HTTP_GET, [](AsyncWebServerRequest *request){
+    dbgln("[webserver] GET /wifi");
+    auto *response = request->beginResponseStream("text/html");
+    renderWifiPage(response);
+    request->send(response);
+  });
+  server->on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request){
+    dbgln("[webserver] POST /wifi");
+    String ssid = request->hasParam("ssid", true) ? request->getParam("ssid", true)->value() : String();
+    String psk  = request->hasParam("psk",  true) ? request->getParam("psk",  true)->value()  : String();
+    if (ssid.length() == 0) {
+      request->redirect("/wifi");
+      return;
+    }
+    auto *response = request->beginResponseStream("text/html");
+    sendResponseHeader(response, "WiFi");
+    response->print("<p>Saved. Rebooting and reconnecting to <b>");
+    response->print(ssid);
+    response->print("</b>...</p>");
+    sendResponseTrailer(response);
+    request->send(response);
+
+    WiFi.disconnect(true /* wifi off */, true /* erase ap */);
+    WiFi.begin(ssid.c_str(), psk.c_str());
+    delay(200);
+    ESP.restart();
   });
   server->on("/favicon.ico", [](AsyncWebServerRequest *request){
     dbgln("[webserver] GET /favicon.ico");
@@ -558,7 +661,7 @@ void sendResponseHeader(AsyncResponseStream *response, const char *title){
       "<meta charset='utf-8'>"
       "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,user-scalable=no\"/>");
     response->printf("<title>ESP32 Pylontech - %s</title>", title);
-    response->print("<link rel=\"stylesheet\" href=\"style.css\">"
+    response->print("<link rel=\"stylesheet\" href=\"/style.css\">"
       "</head>"
       "<body>"
       "<h2>ESP32 Pylontech</h2>");
